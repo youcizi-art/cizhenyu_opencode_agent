@@ -4,9 +4,9 @@
   "repo": "https://github.com/youcizi-art/cizhenyu_opencode_agent.git",
   "strategy": "B",
   "release": {
-    "version": "0.1.1",
+    "version": "0.1.2",
     "channel": "stable",
-    "notes": "官方 Web UI：Deploy 后台 opencode serve + 顶级 WebView；CLI 为调试入口"
+    "notes": "本机 serve + /api/pair 自动配对进官方 Web UI，无需手填运行地址"
   },
   "install": {
     "target": "{systemRoot}/agents/opencode_agent",
@@ -14,8 +14,13 @@
     "owner": "youcizi-art",
     "name": "cizhenyu_opencode_agent",
     "branch": "master",
-    "post": ["npm install"],
-    "preserve": ["home", "node_modules"]
+    "post": [
+      "npm install"
+    ],
+    "preserve": [
+      "home",
+      "node_modules"
+    ]
   },
   "kernel": {
     "kind": "opencode-cli",
@@ -31,9 +36,9 @@
     "configRelative": "home/config",
     "opencodeConfigRelative": "home/config/opencode/opencode.json",
     "serve": {
-      "command": ["serve", "--hostname", "127.0.0.1", "--port", "{port}"],
       "defaultPort": 13990,
-      "ui": "webview-basic-auth"
+      "openScript": "deploy/open-web.mjs",
+      "ui": "webview-pair-connect"
     },
     "customerEntry": "web",
     "debugEntry": "cli"
