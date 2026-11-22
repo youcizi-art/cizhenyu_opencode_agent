@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "product": "CIZHENYU OpenCode",
+  "repo": "https://github.com/youcizi-art/cizhenyu_opencode_agent.git",
+  "strategy": "B",
+  "release": {
+    "version": "0.1.0",
+    "channel": "stable",
+    "notes": "首发：本地 @opencode/cli + 独立 XDG_CONFIG_HOME + MCP 注入"
+  },
+  "install": {
+    "target": "{systemRoot}/agents/opencode_agent",
+    "fetch": "github-zip",
+    "owner": "youcizi-art",
+    "name": "cizhenyu_opencode_agent",
+    "branch": "master",
+    "post": ["npm install"],
+    "preserve": ["home", "node_modules"]
+  },
+  "kernel": {
+    "kind": "opencode-cli",
+    "npmPackage": "@opencode/cli",
+    "npmVersion": "latest",
+    "note": "Official OpenCode CLI; Deploy sets XDG_CONFIG_HOME to install home/config"
+  },
+  "runtime": {
+    "xdgConfigHomeEnv": "XDG_CONFIG_HOME",
+    "homeRelative": "home",
+    "configRelative": "home/config",
+    "opencodeConfigRelative": "home/config/opencode/opencode.json"
+  }
+}

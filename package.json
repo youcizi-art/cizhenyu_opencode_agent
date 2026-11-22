@@ -1,0 +1,13 @@
+﻿{
+  "name": "@cizhenyu/opencode-agent",
+  "private": true,
+  "version": "0.1.0",
+  "description": "CIZHENYU OpenCode packaging — local @opencode/cli + isolated XDG_CONFIG_HOME",
+  "scripts": {
+    "opencode": "opencode",
+    "start": "opencode"
+  },
+  "dependencies": {
+    "@opencode/cli": "latest"
+  }
+}
