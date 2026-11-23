@@ -4,9 +4,17 @@
   "repo": "https://github.com/youcizi-art/cizhenyu_opencode_agent.git",
   "strategy": "B",
   "release": {
-    "version": "0.1.2",
+    "version": "0.1.3",
     "channel": "stable",
-    "notes": "本机 serve + /api/pair；打开项目时自动确保 session 并深链到对话"
+    "notes": "预装社区插件市场 awesome-opencode-market；打开项目自动确保 session"
+  },
+  "market": {
+    "npmPackage": "awesome-opencode-market",
+    "npmVersion": "0.1.0",
+    "install": "local-path-plugin",
+    "catalog": "https://awesome-market.github.io/awesome-opencode-market/",
+    "repo": "https://github.com/awesome-market/awesome-opencode-market",
+    "note": "Plan A: Deploy npm-packs into home/config/opencode/plugins and enables via opencode.json (opencode plugin add hangs on cold npm cache)"
   },
   "install": {
     "target": "{systemRoot}/agents/opencode_agent",
@@ -30,10 +38,12 @@
   },
   "runtime": {
     "xdgConfigHomeEnv": "XDG_CONFIG_HOME",
+    "xdgCacheHomeEnv": "XDG_CACHE_HOME",
     "passwordEnv": "OPENCODE_PASSWORD",
     "passwordFileRelative": "home/.cizhenyu-opencode-password",
     "homeRelative": "home",
     "configRelative": "home/config",
+    "cacheRelative": "home/cache",
     "opencodeConfigRelative": "home/config/opencode/opencode.json",
     "serve": {
       "defaultPort": 13990,

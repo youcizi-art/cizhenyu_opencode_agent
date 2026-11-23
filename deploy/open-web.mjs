@@ -3,7 +3,7 @@
  * CIZHENYU OpenCode — 本机 serve + /api/pair，stdout 打印 JSON 配对 URL。
  * Deploy 只调本脚本并开 WebView；勿在 Deploy 内复制此逻辑。
  *
- * env: XDG_CONFIG_HOME, OPENCODE_PASSWORD?, CIZHENYU_OPENCODE_PORT?, CIZHENYU_WORKSPACE?
+ * env: XDG_CONFIG_HOME, XDG_CACHE_HOME?, OPENCODE_PASSWORD?, CIZHENYU_OPENCODE_PORT?, CIZHENYU_WORKSPACE?
  */
 import { spawn } from "node:child_process";
 import { createConnection } from "node:net";
@@ -146,7 +146,7 @@ async function waitReady(port, password, tries = 80) {
   return false;
 }
 
-function startServe(exe, port, password, workspace, xdg) {
+function startServe(exe, port, password, workspace, xdg, cache) {
   ensureDir(HOME);
   const outFd = openSync(LOG_OUT, "w");
   const errFd = openSync(LOG_ERR, "w");
@@ -155,7 +155,12 @@ function startServe(exe, port, password, workspace, xdg) {
     ["serve", "--hostname", "127.0.0.1", "--port", String(port)],
     {
       cwd: workspace,
-      env: { ...process.env, XDG_CONFIG_HOME: xdg, OPENCODE_PASSWORD: password },
+      env: {
+        ...process.env,
+        XDG_CONFIG_HOME: xdg,
+        XDG_CACHE_HOME: cache,
+        OPENCODE_PASSWORD: password,
+      },
       detached: true,
       stdio: ["ignore", outFd, errFd],
       windowsHide: true,
@@ -246,8 +251,11 @@ async function ensureWorkspaceSession(port, password, workspace) {
 
 async function main() {
   const xdg = process.env.XDG_CONFIG_HOME?.trim() || join(HOME, "config");
+  const cache = process.env.XDG_CACHE_HOME?.trim() || join(HOME, "cache");
   ensureDir(join(xdg, "opencode"));
+  ensureDir(cache);
   process.env.XDG_CONFIG_HOME = xdg;
+  process.env.XDG_CACHE_HOME = cache;
 
   const exe = findCli();
   if (!exe) fail("未找到 opencode CLI，请先在 Deploy 安装 OpenCode Agent");
@@ -275,7 +283,7 @@ async function main() {
     } else if (await portOpen(port)) {
       fail(`端口 ${port} 已被占用且不是本机 OpenCode 隔离服务`);
     } else {
-      const pid = startServe(exe, port, password, workspace, xdg);
+      const pid = startServe(exe, port, password, workspace, xdg, cache);
       if (!(await waitReady(port, password))) {
         fail(`opencode serve 未就绪（pid ${pid}），见 ${LOG_ERR}`);
       }
