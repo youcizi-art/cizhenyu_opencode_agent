@@ -15,7 +15,7 @@ import {
   writeFileSync,
   unlinkSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -112,6 +112,23 @@ function processAlive(pid) {
   }
 }
 
+function killPidTree(pid) {
+  if (!pid || pid <= 0) return;
+  try {
+    if (process.platform === "win32") {
+      spawn("taskkill", ["/PID", String(pid), "/T", "/F"], {
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true,
+      }).unref();
+    } else {
+      process.kill(pid, "SIGTERM");
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 async function pickPort(preferred) {
   for (let i = 0; i < 10; i++) {
     const port = preferred + i;
@@ -165,6 +182,68 @@ async function createPairUrl(port, password) {
   return `http://127.0.0.1:${port}/auth/connect/${data.code}`;
 }
 
+function b64Key(value) {
+  return Buffer.from(String(value), "utf8").toString("base64").replace(/=+$/, "");
+}
+
+function sessionDeepLink(port, sessionId) {
+  const server = `http://127.0.0.1:${port}`;
+  return `${server}/server/${b64Key(server)}/session/${sessionId}`;
+}
+
+/** 若工作区尚未登记，创建 session（OpenCode 会顺带登记 project）；已有则复用最新一条。 */
+async function ensureWorkspaceSession(port, password, workspace) {
+  const directory = resolve(workspace);
+  if (!existsSync(directory)) {
+    throw new Error(`workspace does not exist: ${directory}`);
+  }
+  const auth = Buffer.from(`opencode:${password}`).toString("base64");
+  const headers = {
+    Authorization: `Basic ${auth}`,
+    "Content-Type": "application/json",
+  };
+  const q = new URLSearchParams({
+    directory,
+    limit: "1",
+    order: "desc",
+    parentID: "null",
+    archived: "false",
+  });
+  const listRes = await fetch(`http://127.0.0.1:${port}/api/session?${q}`, {
+    headers,
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!listRes.ok) {
+    throw new Error(
+      `list sessions failed (${listRes.status}): ${await listRes.text()}`,
+    );
+  }
+  const list = await listRes.json();
+  const existingId = list?.data?.[0]?.id;
+  if (existingId) {
+    return { sessionId: existingId, directory, created: false };
+  }
+
+  const createRes = await fetch(`http://127.0.0.1:${port}/api/session`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      location: { directory },
+      title: basename(directory) || "CIZHENYU",
+    }),
+    signal: AbortSignal.timeout(12000),
+  });
+  if (!createRes.ok) {
+    throw new Error(
+      `create session failed (${createRes.status}): ${await createRes.text()}`,
+    );
+  }
+  const created = await createRes.json();
+  const sessionId = created?.data?.id;
+  if (!sessionId) throw new Error("create session missing id");
+  return { sessionId, directory, created: true };
+}
+
 async function main() {
   const xdg = process.env.XDG_CONFIG_HOME?.trim() || join(HOME, "config");
   ensureDir(join(xdg, "opencode"));
@@ -182,17 +261,13 @@ async function main() {
 
   if (!(await apiInfoOk(port, password))) {
     if (pidRaw && processAlive(pidRaw)) {
-      try {
-        process.kill(pidRaw);
-      } catch {
-        /* ignore */
-      }
+      killPidTree(pidRaw);
       try {
         unlinkSync(PID_FILE);
       } catch {
         /* ignore */
       }
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, 600));
     }
     port = await pickPort(port);
     if (await apiInfoOk(port, password)) {
@@ -207,9 +282,27 @@ async function main() {
     }
   }
 
+  let sessionId = null;
+  let sessionUrl = null;
+  let sessionCreated = false;
+  let sessionError = null;
+  try {
+    const ensured = await ensureWorkspaceSession(port, password, workspace);
+    sessionId = ensured.sessionId;
+    sessionUrl = sessionDeepLink(port, ensured.sessionId);
+    sessionCreated = ensured.created;
+  } catch (e) {
+    sessionError = String(e?.message || e);
+  }
+
   const connectUrl = await createPairUrl(port, password);
   ok({
     connectUrl,
+    sessionUrl,
+    sessionId,
+    sessionCreated,
+    sessionError,
+    workspace,
     webUrl: `http://127.0.0.1:${port}/`,
     port,
     exePath: exe,

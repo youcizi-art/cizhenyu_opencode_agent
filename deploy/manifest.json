@@ -6,7 +6,7 @@
   "release": {
     "version": "0.1.2",
     "channel": "stable",
-    "notes": "本机 serve + /api/pair 自动配对进官方 Web UI，无需手填运行地址"
+    "notes": "本机 serve + /api/pair；打开项目时自动确保 session 并深链到对话"
   },
   "install": {
     "target": "{systemRoot}/agents/opencode_agent",
