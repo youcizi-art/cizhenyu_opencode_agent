@@ -18,7 +18,9 @@ Deploy 内置第三 Agent 包装仓。用户安装副本：`{systemRoot}/agents/
 
 ## 社区插件市场
 
-与 DSH `dshmarket` 同属方案 A：安装时默认开启。目录见 [awesome-opencode-market](https://github.com/awesome-market/awesome-opencode-market)。
+OpenCode **Web UI 当前无法加载 GUI Market 面板**（Desktop-only）。Deploy Ops 卡片提供「插件市场」抽屉：npm 搜索 + 安装到隔离 `home/config/opencode/plugins/`。验证目录站点：https://awesome-market.github.io/awesome-opencode-market/
+
+安装时仍预装 `awesome-opencode-market` 包；内核 npm 安装过程会心跳更新进度（体积大属正常）。
 
 ## 开发
 
