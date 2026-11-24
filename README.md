@@ -1,4 +1,4 @@
-﻿# CIZHENYU OpenCode Agent
+# CIZHENYU OpenCode Agent
 
 Deploy 内置第三 Agent 包装仓。用户安装副本：`{systemRoot}/agents/opencode_agent`。
 

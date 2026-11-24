@@ -3,7 +3,8 @@
  * CIZHENYU OpenCode — 本机 serve + /api/pair，stdout 打印 JSON 配对 URL。
  * Deploy 只调本脚本并开 WebView；勿在 Deploy 内复制此逻辑。
  *
- * env: XDG_CONFIG_HOME, XDG_CACHE_HOME?, OPENCODE_PASSWORD?, CIZHENYU_OPENCODE_PORT?, CIZHENYU_WORKSPACE?
+ * env: XDG_CONFIG_HOME, XDG_CACHE_HOME?, OPENCODE_PASSWORD?, CIZHENYU_OPENCODE_PORT?,
+ *      CIZHENYU_WORKSPACE?, CIZHENYU_OBJECT_ROOT?, CIZHENYU_ENSURE_SESSION?
  */
 import { spawn } from "node:child_process";
 import { createConnection } from "node:net";
@@ -24,6 +25,7 @@ const HOME = join(INSTALL, "home");
 const PID_FILE = join(HOME, ".cizhenyu-opencode.pid");
 const PORT_FILE = join(HOME, ".cizhenyu-opencode-port");
 const PASS_FILE = join(HOME, ".cizhenyu-opencode-password");
+const CWD_FILE = join(HOME, ".cizhenyu-opencode-cwd");
 const LOG_OUT = join(HOME, ".cizhenyu-opencode-serve.out.log");
 const LOG_ERR = join(HOME, ".cizhenyu-opencode-serve.err.log");
 const DEFAULT_PORT = 13990;
@@ -146,15 +148,30 @@ async function waitReady(port, password, tries = 80) {
   return false;
 }
 
+function readServeCwd() {
+  if (!existsSync(CWD_FILE)) return "";
+  try {
+    return readFileSync(CWD_FILE, "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+function writeServeCwd(workspace) {
+  ensureDir(HOME);
+  writeFileSync(CWD_FILE, resolve(workspace), "utf8");
+}
+
 function startServe(exe, port, password, workspace, xdg, cache) {
   ensureDir(HOME);
   const outFd = openSync(LOG_OUT, "w");
   const errFd = openSync(LOG_ERR, "w");
+  const cwd = resolve(workspace);
   const child = spawn(
     exe,
     ["serve", "--hostname", "127.0.0.1", "--port", String(port)],
     {
-      cwd: workspace,
+      cwd,
       env: {
         ...process.env,
         XDG_CONFIG_HOME: xdg,
@@ -169,7 +186,29 @@ function startServe(exe, port, password, workspace, xdg, cache) {
   child.unref();
   writeFileSync(PID_FILE, String(child.pid), "utf8");
   writeFileSync(PORT_FILE, String(port), "utf8");
+  writeServeCwd(cwd);
   return child.pid;
+}
+
+async function stopServeIfRunning(port, password) {
+  const pidRaw = existsSync(PID_FILE) ? Number(readFileSync(PID_FILE, "utf8").trim()) : 0;
+  if (pidRaw && processAlive(pidRaw)) {
+    killPidTree(pidRaw);
+    try {
+      unlinkSync(PID_FILE);
+    } catch {
+      /* ignore */
+    }
+    await new Promise((r) => setTimeout(r, 600));
+  }
+  // 端口仍被占用时再等一会（旧进程退出）
+  for (let i = 0; i < 10; i++) {
+    if (!(await apiInfoOk(port, password)) && !(await portOpen(port))) break;
+    if (await apiInfoOk(port, password)) {
+      // 仍是我们的服务但 pid 文件丢了：无法精确 kill，再试 taskkill by port 不稳；继续等
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
 }
 
 async function createPairUrl(port, password) {
@@ -196,9 +235,25 @@ function sessionDeepLink(port, sessionId) {
   return `${server}/server/${b64Key(server)}/session/${sessionId}`;
 }
 
+function normPath(p) {
+  return resolve(p).replace(/[\\/]+$/, "").toLowerCase();
+}
+
+/** object/ 主目录禁止作为项目目录（Deploy 也会拦；此处双保险）。 */
+function assertNotObjectRoot(workspace) {
+  const root = process.env.CIZHENYU_OBJECT_ROOT?.trim();
+  if (!root) return;
+  if (normPath(workspace) === normPath(root)) {
+    throw new Error(
+      "Refuse to use object/ root as OpenCode project; use a subfolder (e.g. object/default)",
+    );
+  }
+}
+
 /** 若工作区尚未登记，创建 session（OpenCode 会顺带登记 project）；已有则复用最新一条。 */
 async function ensureWorkspaceSession(port, password, workspace) {
   const directory = resolve(workspace);
+  assertNotObjectRoot(directory);
   if (!existsSync(directory)) {
     throw new Error(`workspace does not exist: ${directory}`);
   }
@@ -262,24 +317,38 @@ async function main() {
 
   const password = ensurePassword();
   process.env.OPENCODE_PASSWORD = password;
-  const workspace = process.env.CIZHENYU_WORKSPACE?.trim() || process.cwd();
+  const workspace = resolve(process.env.CIZHENYU_WORKSPACE?.trim() || process.cwd());
+  try {
+    assertNotObjectRoot(workspace);
+  } catch (e) {
+    fail(String(e?.message || e));
+  }
+  // Deploy：项目打开 / Agent 页直开（object/default）都会传 1，登记项目并深链。
+  const ensureSession =
+    process.env.CIZHENYU_ENSURE_SESSION !== "0" &&
+    process.env.CIZHENYU_ENSURE_SESSION !== "false";
+  const objectRoot = process.env.CIZHENYU_OBJECT_ROOT?.trim() || "";
+  const prevCwd = readServeCwd();
+  const prevIsObjectRoot =
+    Boolean(objectRoot) && prevCwd && normPath(prevCwd) === normPath(objectRoot);
+  const cwdMismatch = Boolean(prevCwd) && normPath(prevCwd) !== normPath(workspace);
+  const mustRestartServe = prevIsObjectRoot || cwdMismatch;
 
   let port = readPreferredPort();
-  const pidRaw = existsSync(PID_FILE) ? Number(readFileSync(PID_FILE, "utf8").trim()) : 0;
+
+  if (mustRestartServe && (await apiInfoOk(port, password))) {
+    await stopServeIfRunning(port, password);
+  }
 
   if (!(await apiInfoOk(port, password))) {
+    const pidRaw = existsSync(PID_FILE) ? Number(readFileSync(PID_FILE, "utf8").trim()) : 0;
     if (pidRaw && processAlive(pidRaw)) {
-      killPidTree(pidRaw);
-      try {
-        unlinkSync(PID_FILE);
-      } catch {
-        /* ignore */
-      }
-      await new Promise((r) => setTimeout(r, 600));
+      await stopServeIfRunning(port, password);
     }
     port = await pickPort(port);
     if (await apiInfoOk(port, password)) {
       writeFileSync(PORT_FILE, String(port), "utf8");
+      if (!readServeCwd()) writeServeCwd(workspace);
     } else if (await portOpen(port)) {
       fail(`端口 ${port} 已被占用且不是本机 OpenCode 隔离服务`);
     } else {
@@ -288,19 +357,23 @@ async function main() {
         fail(`opencode serve 未就绪（pid ${pid}），见 ${LOG_ERR}`);
       }
     }
+  } else if (!prevCwd) {
+    writeServeCwd(workspace);
   }
 
   let sessionId = null;
   let sessionUrl = null;
   let sessionCreated = false;
   let sessionError = null;
-  try {
-    const ensured = await ensureWorkspaceSession(port, password, workspace);
-    sessionId = ensured.sessionId;
-    sessionUrl = sessionDeepLink(port, ensured.sessionId);
-    sessionCreated = ensured.created;
-  } catch (e) {
-    sessionError = String(e?.message || e);
+  if (ensureSession) {
+    try {
+      const ensured = await ensureWorkspaceSession(port, password, workspace);
+      sessionId = ensured.sessionId;
+      sessionUrl = sessionDeepLink(port, ensured.sessionId);
+      sessionCreated = ensured.created;
+    } catch (e) {
+      sessionError = String(e?.message || e);
+    }
   }
 
   const connectUrl = await createPairUrl(port, password);
